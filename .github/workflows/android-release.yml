@@ -1,4 +1,4 @@
-name: Android CI - Build and Publish APK
+name: Android CI - Build and Publish RELEASE APK
 
 on:
   push:
@@ -10,6 +10,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # These secrets are required for the FINAL signing step (not diagnosis)
+    env:
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
 
     steps:
     - name: Checkout Repository
@@ -25,20 +30,41 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build Debug APK with Gradle
-      # We use 'assembleDebug' to create the unsigned debug APK.
-      run: ./gradlew assembleDebug --warning-mode all
+    - name: Build RELEASE AAB and APK with Gradle
+      # Runs the release build. This generates the unsigned APK.
+      run: ./gradlew assembleRelease --warning-mode all
 
-    - name: Find Built APK Path (Revised, Robust Search)
-      # FIX: Search recursively for ANY file ending in '-debug.apk' in the entire workspace.
+    # --- CRITICAL DIAGNOSTIC STEP ---
+    - name: List ALL APK Files for Path Diagnosis
+      # This MUST show the full path to the generated APK if the build worked.
+      run: |
+        echo "Searching for ALL generated .apk files..."
+        find ${{ github.workspace }} -name "*.apk"
+        echo "--- End of APK search results ---"
+      shell: bash
+    # --------------------------------
+
+    - name: Sign Android Release
+      # Conditional step: Only run if the required secret for the keystore content is provided.
+      # If secrets are missing, this step will be skipped, but the workflow will continue.
+      if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      uses: r0adkll/sign-android-release@v1
+      with:
+        releaseDirectory: ${{ github.workspace }}/app/build/outputs/apk/release
+        signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
+        alias: ${{ env.KEY_ALIAS }}
+        keyStorePassword: ${{ env.KEYSTORE_PASSWORD }}
+        keyPassword: ${{ env.KEY_PASSWORD }}
+
+    - name: Find Built Signed/Unsigned APK Path
+      # We search for either the signed or unsigned release APK.
       id: find_apk
-      run: echo "APK_PATH=$(find ${{ github.workspace }} -name "*-debug.apk" -print -quit)" >> $GITHUB_OUTPUT
+      run: echo "APK_PATH=$(find ${{ github.workspace }} -name "*-release*.apk" -print -quit)" >> $GITHUB_OUTPUT
       shell: bash
 
-    - name: Upload Debug APK Artifact
+    - name: Upload Signed/Unsigned Release APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: eds-lite-debug-apk
+        name: eds-lite-release-apk
         path: ${{ steps.find_apk.outputs.APK_PATH }}
-        retention-days: 5
-        
+        retention-days: 7
