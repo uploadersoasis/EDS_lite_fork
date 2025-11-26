@@ -45,8 +45,8 @@ jobs:
     # --------------------------------
 
     - name: Sign Android Release
-      # FIX: Changed conditional syntax to properly evaluate the secret's value as a string.
-      if: '${{ secrets.KEYSTORE_BASE64 }}' != ''
+      # FIX: Use environment variable check (env.KEYSTORE_PASSWORD) to avoid YAML parsing error.
+      if: env.KEYSTORE_PASSWORD != ''
       uses: r0adkll/sign-android-release@v1
       with:
         releaseDirectory: ${{ github.workspace }}/app/build/outputs/apk/release
