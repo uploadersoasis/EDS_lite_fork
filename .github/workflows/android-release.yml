@@ -63,8 +63,8 @@ jobs:
           exit 1
         fi
         
-        # Find the unsigned release APK (usually app-release-unsigned.apk)
-        UNSIGNED_APK_PATH=$(find ${{ github.workspace }} -name "*-release-unsigned.apk" -print -quit)
+        # --- FIX: Broaden the search to any file ending in -unsigned.apk ---
+        UNSIGNED_APK_PATH=$(find ${{ github.workspace }} -name "*-unsigned.apk" -print -quit)
         if [ -z "$UNSIGNED_APK_PATH" ]; then
           echo "::error::Could not find unsigned release APK."
           exit 1
