@@ -29,16 +29,16 @@ jobs:
       # We use 'assembleDebug' to create the unsigned debug APK.
       run: ./gradlew assembleDebug --warning-mode all
 
-    - name: Find Built APK Path
-      # FIX: Search recursively for the debug APK file anywhere within the project's build directories.
+    - name: Find Built APK Path (Revised, Robust Search)
+      # FIX: Search recursively for ANY file ending in '-debug.apk' in the entire workspace.
       id: find_apk
-      run: echo "APK_PATH=$(find ${{ github.workspace }} -path "*/build/outputs/apk/debug/*.apk" -print -quit)" >> $GITHUB_OUTPUT
+      run: echo "APK_PATH=$(find ${{ github.workspace }} -name "*-debug.apk" -print -quit)" >> $GITHUB_OUTPUT
       shell: bash
 
     - name: Upload Debug APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: eds-lite-debug-apk
-        # This now uses the dynamically found path, which should be correct.
         path: ${{ steps.find_apk.outputs.APK_PATH }}
         retention-days: 5
+        
