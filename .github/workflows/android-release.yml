@@ -45,9 +45,8 @@ jobs:
     # --------------------------------
 
     - name: Sign Android Release
-      # Conditional step: Only run if the required secret for the keystore content is provided.
-      # If secrets are missing, this step will be skipped, but the workflow will continue.
-      if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      # FIX: Changed conditional syntax to properly evaluate the secret's value as a string.
+      if: '${{ secrets.KEYSTORE_BASE64 }}' != ''
       uses: r0adkll/sign-android-release@v1
       with:
         releaseDirectory: ${{ github.workspace }}/app/build/outputs/apk/release
