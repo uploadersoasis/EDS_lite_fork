@@ -1,10 +1,13 @@
 name: Android CI
 
 on:
+  # This workflow is now disabled from running on 'push' or 'pull_request'.
+  # It will only run if manually triggered via the 'Run workflow' button.
   #push:
     #branches: [ "master" ]
   #pull_request:
     #branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
