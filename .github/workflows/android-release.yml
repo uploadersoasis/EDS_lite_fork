@@ -1,4 +1,4 @@
-name: Android CI - Build and Publish RELEASE APK
+name: Android CI - Build and Publish SELF-SIGNED RELEASE APK
 
 on:
   push:
@@ -10,11 +10,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # These secrets are required for the FINAL signing step (not diagnosis)
-    env:
-      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
 
     steps:
     - name: Checkout Repository
@@ -30,40 +25,84 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build RELEASE AAB and APK with Gradle
-      # Runs the release build. This generates the unsigned APK.
+    # --- HACK: 1. Generate a temporary Keystore for signing ---
+    - name: Generate Temporary Keystore
+      run: |
+        echo "Creating temporary keystore for CI signing..."
+        keytool -genkey -v \
+        -keystore temp.keystore \
+        -alias temp-alias \
+        -keyalg RSA \
+        -keysize 2048 \
+        -validity 10000 \
+        -dname "CN=CI Tester, OU=Dev, O=CI/CD, C=US" \
+        -storepass temp-pass \
+        -keypass temp-pass
+      shell: bash
+
+    - name: Build RELEASE AAB and Unsigned APK with Gradle
       run: ./gradlew assembleRelease --warning-mode all
 
-    # --- CRITICAL DIAGNOSTIC STEP ---
+    # --- DIAGNOSTIC STEP (Should be removed later) ---
     - name: List ALL APK Files for Path Diagnosis
-      # This MUST show the full path to the generated APK if the build worked.
       run: |
         echo "Searching for ALL generated .apk files..."
         find ${{ github.workspace }} -name "*.apk"
         echo "--- End of APK search results ---"
       shell: bash
-    # --------------------------------
+    # ----------------------------------------------------
 
-    - name: Sign Android Release
-      # FIX: Use environment variable check (env.KEYSTORE_PASSWORD) to avoid YAML parsing error.
-      if: env.KEYSTORE_PASSWORD != ''
-      uses: r0adkll/sign-android-release@v1
-      with:
-        releaseDirectory: ${{ github.workspace }}/app/build/outputs/apk/release
-        signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-        alias: ${{ env.KEY_ALIAS }}
-        keyStorePassword: ${{ env.KEYSTORE_PASSWORD }}
-        keyPassword: ${{ env.KEY_PASSWORD }}
+    # --- HACK: 2. Find the build tools and optimize (zipalign) ---
+    - name: Find and Optimize Unsigned APK (zipalign)
+      id: zipalign_apk
+      run: |
+        # Find the build tools path (e.g., /usr/local/lib/android/sdk/build-tools/34.0.0)
+        BUILD_TOOLS_DIR=$(find /usr/local/lib/android/sdk/build-tools/ -maxdepth 1 -type d | sort -V | tail -n 1)
+        if [ -z "$BUILD_TOOLS_DIR" ]; then
+          echo "::error::Could not locate Android build-tools directory."
+          exit 1
+        fi
+        
+        # Find the unsigned release APK (usually app-release-unsigned.apk)
+        UNSIGNED_APK_PATH=$(find ${{ github.workspace }} -name "*-release-unsigned.apk" -print -quit)
+        if [ -z "$UNSIGNED_APK_PATH" ]; then
+          echo "::error::Could not find unsigned release APK."
+          exit 1
+        fi
 
-    - name: Find Built Signed/Unsigned APK Path
-      # We search for either the signed or unsigned release APK.
-      id: find_apk
-      run: echo "APK_PATH=$(find ${{ github.workspace }} -name "*-release*.apk" -print -quit)" >> $GITHUB_OUTPUT
+        OPTIMIZED_APK_PATH=$(dirname "$UNSIGNED_APK_PATH")/app-release-optimized.apk
+        
+        echo "Optimizing: $UNSIGNED_APK_PATH to $OPTIMIZED_APK_PATH"
+        # Optimize (zipalign) the unsigned APK
+        "$BUILD_TOOLS_DIR/zipalign" -v 4 "$UNSIGNED_APK_PATH" "$OPTIMIZED_APK_PATH"
+        
+        echo "OPTIMIZED_APK_PATH=$OPTIMIZED_APK_PATH" >> $GITHUB_OUTPUT
       shell: bash
 
-    - name: Upload Signed/Unsigned Release APK Artifact
+    # --- HACK: 3. Sign the optimized APK (apksigner) ---
+    - name: Sign Android Release with Temporary Keystore
+      id: sign_apk
+      run: |
+        BUILD_TOOLS_DIR=$(find /usr/local/lib/android/sdk/build-tools/ -maxdepth 1 -type d | sort -V | tail -n 1)
+        SIGNED_APK_PATH=$(dirname "${{ steps.zipalign_apk.outputs.OPTIMIZED_APK_PATH }}")/app-release-signed.apk
+        
+        echo "Signing: ${{ steps.zipalign_apk.outputs.OPTIMIZED_APK_PATH }} to $SIGNED_APK_PATH"
+        # Sign the optimized APK with the temporary keystore
+        "$BUILD_TOOLS_DIR/apksigner" sign \
+          --ks temp.keystore \
+          --ks-key-alias temp-alias \
+          --ks-pass pass:temp-pass \
+          --key-pass pass:temp-pass \
+          --out "$SIGNED_APK_PATH" \
+          "${{ steps.zipalign_apk.outputs.OPTIMIZED_APK_PATH }}"
+        
+        echo "SIGNED_APK_PATH=$SIGNED_APK_PATH" >> $GITHUB_OUTPUT
+      shell: bash
+
+    - name: Upload Final Signed Release APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: eds-lite-release-apk
-        path: ${{ steps.find_apk.outputs.APK_PATH }}
+        name: eds-lite-signed-release-apk
+        # Use the path to the final signed APK
+        path: ${{ steps.sign_apk.outputs.SIGNED_APK_PATH }}
         retention-days: 7
