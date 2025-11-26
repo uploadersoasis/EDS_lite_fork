@@ -12,6 +12,9 @@
 name: "CodeQL Advanced"
 
 on:
+  # This workflow is now disabled from running on 'push' or 'pull_request'.
+  # It will only run if manually triggered via the 'Run workflow' button.
+  workflow_dispatch:
   #push:
     #branches: [ "master" ]
   #pull_request:
